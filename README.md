@@ -1,61 +1,65 @@
-# Twitter Bot Using Python and AWS Lambda
+# Twitter Parody Bot Using Python and AWS Lambda
 
-![Python](https://img.shields.io/badge/Python-v3.8.3-brightgreen) ![License](https://img.shields.io/badge/license-MIT-blue) ![contributions welcome](https://img.shields.io/badge/contributions-welcome-brightgreen.svg?style=flat) [![Twitter](https://img.shields.io/twitter/url/https/twitter.com/_dylancastillo.svg?style=social&label=Follow%20%40_dylancastillo)](https://twitter.com/_dylancastillo)
+I made a twitter bot based on my twitter-active comedian girlfriend. You can checkout and follow the bot (lovingly known as "anabot") [here](https://twitter.com/ana40624883).
 
-This is a simple template you can use to build a twitter bot using Python and an AWS Lambda Function. I used it to create [@dereksiversbot](https://twitter.com/dereksiversbot). Learn how to make your own [here.](https://dylancastillo.co/how-to-make-a-twitter-bot-for-free/)
- 
-Why build a bot this way?
- 
- 1. It's quick and easy 
- 2. You have full control over the bot's actions
- 3. It only uses services from AWS free tier (but see [limitations](#limitations) first)
- 
-## Pre-requisites
+Most of this code was written with the help of @DylanJCastillo and his tutorial [How to Make a Twitter Bot Using Python and AWS Lambda](https://dylancastillo.co/how-to-make-a-twitter-bot-for-free/). I'll walk through how I incorporated markov chains and personal twitter data to make my bot sound just like Ana.
 
-To build and use the bot, you'll need to:
- 
- 1. Register for a [twitter developer account](https://developer.twitter.com/en)  
- 2. Create a [twitter app](https://developer.twitter.com/en/portal/projects-and-apps). Make sure to give it **Read and Write** permissions.
- 3. Set up an [AWS account](https://aws.amazon.com/)
- 4. Create a [Lambda Function](https://docs.aws.amazon.com/lambda/latest/dg/getting-started-create-function.html) for your bot
- 5. Create a [Lambda Layer](https://medium.com/@adhorn/getting-started-with-aws-lambda-layers-for-python-6e10b1f9a5d) to use additional libraries in your Lambda Function 
- 
-## How to use
+# Get the tweets!
 
-To make your own bot follow these steps:
+Before we get started making the bot, you'll need to download whoever you're trying to replicate's entire twitter history. You can only download your own entire twitter history, so it helps to be personally very close to the person you're trying to clone. Thankfully, my girlfriend and I are pretty close.
 
-1. Clone this repository on your local machine
-2. Create a virtual environment in your project's root directory: `python3 -m venv venv && source venv/bin/activate`
-3. Install the required libraries using pip: `pip install -r requirements.txt`
-4. Create a file called `.env` in the root directory of your project. Put your twitter App keys there:
-```
-ACCESS_TOKEN=<YOUR_ACCESS_TOKEN_HERE>
-ACCESS_TOKEN_SECRET=<YOUR_ACCESS_TOKEN_SECRET_HERE>
-CONSUMER_KEY=<YOUR_CONSUMER_KEY_HERE>
-CONSUMER_SECRET=<YOUR_CONSUMER_SECRET_HERE>
-```
-5. Make changes in the logic of the bot by modyifing `src/lambda_function.py`
-6. Test your changes locally by running `python entrypoint.py` from the root directory of your project
+Twitter will send you your entire tweet history in an absolutely enormous JSON file. You'll need to grab the text from each tweet and put them into a text file. You can do this with simple Javascript:
 
-## How to deploy
+    const fs = require('fs')
 
-Once you are happy with your bot:
+    //the tweets JSON is in index.js
+    let tweets = require('./index.js')
 
-1. Add any additional packages you used to `requirements.txt`
-2. Run `sh createlambdalayer.sh` from the root directory of your project. It'll generate a zip file with your libraries called `layer.zip`
-3. Update your Lambda Layer using `layer.zip`
-4. Run `sh buildpackage.sh` from the root directory of your project. It'll make a zip file with the code for your Lambda Function called `lambda_function.zip`
-5. Upload `lambda_function.zip` to your Lambda Function
-6. Add your twitter App keys as environment variables in the Lambda Function
-7. Add a scheduled trigger to your Lambda Function using [EventBridge](https://docs.aws.amazon.com/eventbridge/latest/userguide/run-lambda-schedule.html) 
+    tweets.forEach((item) => {
+        fs.appendFile('tweets.txt', ` ${item.tweet.full_text}`, (err => {
+            if(err) throw err
+        }))
+        fs.appendFile('tweets.txt', ' ')
+    })
 
-## Limitations
+Now you'll have a file called "tweets.txt" that you can use as a corpus for a markov chain and produce pretty lifelike tweets. 
 
-Read this before using the bot:
+# Markovify
 
-- This is free unless you go crazy with it or use **custom events for triggering** the Lambda Function. Check the [AWS Free Tier](https://aws.amazon.com/free/) if you have any questions. Use it at your own risk!
-- Current logic is very simple. The bot will post a random tweet (excluding its last 3 tweets). If you want something more complex, you'll need to add it on your own.
+Ok, we're done with that little bit of Javascript. On to Python - you'll need a really neat Python library called [Markovify](https://github.com/jsvine/markovify)
 
-## Attributions
+In src/anabot you'll find simple code that takes "markovify's" the tweets.txt corpus we just created, and produces a sentence of max 280 characters:
 
-The `createlambdalayer.sh` script comes from [this repository](https://github.com/aws-samples/aws-lambda-layer-create-script).
+    dirname = os.path.dirname(os.path.abspath(__file__))
+    tweets = os.path.join(dirname, 'tweets.txt')
+
+    with open(tweets) as f:
+    text = f.read()
+
+    class POSifiedText(markovify.Text):
+        def word_split(self, sentence):
+            words = re.split(self.word_split_pattern, sentence)
+            words = [ "::".join(tag) for tag in nltk.pos_tag(words) ]
+            return words
+
+        def word_join(self, words):
+            sentence = " ".join(word.split("::")[0] for word in words)
+            return sentence
+
+    text_model = markovify.Text(text)
+
+    print(text_model.make_short_sentence(280))
+
+This file doesn't actually do anything other than print a tweet,  but it was helpful to have for testing purposes and to understand what Markovify was capable of doing. Its helpful to also import the NLTK library (natural language toolkit) to help the markovify function produce more "realistic" sounding sentences.
+
+# Now we make the Lambda function!
+
+This is where @dylanjcastillo 's [incredible tutorial](https://dylancastillo.co/how-to-make-a-twitter-bot-for-free/) comes in handy. You're pretty much going to want to follow it from beginning to end - just make sure to have a basic understanding of Docker, AWS, and have a Twitter development account set up and ready to go.
+
+What you'll want to change is the lambda_function.py file. This is the file that will be "triggered" and run while it's hosted on AWS Lambda - i.e., this is what will produce the tweet every 10 hours or whatever time you set it for. What I did was copy in my anabot.py code and adjust the get_tweet function to produce a tweet from the tweets.txt corpus. Just also make sure to import whatever necessary libraries (in my case, markovify and nltk), and add those libraries to the requirements.txt file as well.
+
+# Deploy on AWS
+
+Now you're going to run those handy scripts Dylan so kindly put together to create zip files of the lambda function, and a layer file for AWS. Upload your lamda_function.zip, layer.zip, add your Twitter developer account credentials, set up a trigger, and you're ready to go! 
+
+
